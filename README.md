@@ -1,6 +1,6 @@
-SubHunter 🐍🔍
+SubFinderX 🐍🔍
 
-SubHunter is a modern, Kali Linux–friendly subdomain enumeration tool designed for penetration testers and bug bounty hunters.  
+SubFinderX is a modern, Kali Linux–friendly subdomain enumeration tool designed for penetration testers and bug bounty hunters.  
 It performs passive OSINT discovery + active DNS resolution + HTTP probing in a single command, producing real-time and historical attack surface intelligence.
 
 ---
@@ -24,8 +24,8 @@ It performs passive OSINT discovery + active DNS resolution + HTTP probing in a 
 Recommended (virtual environment)
 
 ```bash
-git clone https://github.com/Laya-Manoj/Subhunter.git
-cd subhunter
+git clone https://github.com/Laya-Manoj/SubFinderX.git
+cd SubFinderX
 python3 -m venv venv
 source venv/bin/activate
 pip install .
@@ -35,22 +35,22 @@ pip install .
 
 🚀 Usage
 Basic full reconnaissance (default behavior)
-subhunter -d example.com
+SubFinderX -d example.com
 
 Show only newly discovered subdomains
-subhunter -d example.com --only-new
+SubFinderX -d example.com --only-new
 
 JSON output (for automation / pipelines)
-subhunter -d example.com --json
+SubFinderX -d example.com --json
 
 Plain text output
-subhunter -d example.com --txt
+SubFinderX -d example.com --txt
 
 Control concurrency
-subhunter -d example.com --threads 50
+SubFinderX -d example.com --threads 50
 
 🆘 Help
-subhunter --help
+SubFinderX --help
 
 🖥️ Sample Output
 [+] Domain: example.com
