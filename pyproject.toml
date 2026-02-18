@@ -19,6 +19,6 @@ dependencies = [
 [project.scripts]
 subfinderx = "subfinderx.cli:main"
 
-[tool.setuptools]
-packages = ["subfinderx"]
-
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["subfinderx*"]
