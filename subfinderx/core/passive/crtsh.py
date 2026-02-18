@@ -9,8 +9,8 @@ from typing import Iterable, Set
 
 import httpx
 
-from subhunter.core.utils.config import APIConfig
-from subhunter.core.utils.dedupe import dedupe_subdomains
+from subfinderx.core.utils.config import APIConfig
+from subfinderx.core.utils.dedupe import dedupe_subdomains
 
 
 CRTURL_TEMPLATE = "https://crt.sh/?q=%25.{domain}&output=json"

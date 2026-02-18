@@ -8,8 +8,8 @@ from typing import Set
 
 import httpx
 
-from subhunter.core.utils.config import APIConfig
-from subhunter.core.utils.dedupe import dedupe_subdomains
+from subfinderx.core.utils.config import APIConfig
+from subfinderx.core.utils.dedupe import dedupe_subdomains
 
 
 ST_BASE_URL = "https://api.securitytrails.com/v1"

@@ -150,9 +150,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  subhunter -d example.com\n"
-            "  subhunter -d example.com --only-new\n"
-            "  subhunter -d example.com --json\n"
+            "  subfinderx -d example.com\n"
+            "  subfinderx -d example.com --only-new\n"
+            "  subfinderx -d example.com --json\n"
         ),
     )
 

@@ -8,8 +8,8 @@ from typing import Set
 
 import httpx
 
-from subhunter.core.utils.config import APIConfig
-from subhunter.core.utils.dedupe import dedupe_subdomains
+from subfinderx.core.utils.config import APIConfig
+from subfinderx.core.utils.dedupe import dedupe_subdomains
 
 
 CHAOS_BASE_URL = "https://dns.projectdiscovery.io"
