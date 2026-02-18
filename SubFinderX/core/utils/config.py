@@ -29,6 +29,7 @@ class RuntimeConfig:
     Runtime configuration derived from CLI arguments and environment.
 
     Full recon (passive + DNS + HTTP + historical) is always performed.
+    Optional brute-force adds wordlist-based enumeration before DNS/HTTP.
     """
 
     domain: str
@@ -37,6 +38,8 @@ class RuntimeConfig:
     output_txt: bool = False
     silent: bool = False
     only_new: bool = False
+    bruteforce: bool = False
+    wordlist_path: Optional[str] = None
 
 
 def load_api_config() -> APIConfig:
