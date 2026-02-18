@@ -20,7 +20,5 @@ dependencies = [
 subfinderx = "subfinderx.cli:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+packages = ["subfinderx"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
