@@ -8,3 +8,5 @@ build/
 backend/backend/reports/
 *.json
 *.html
+.vscode/
+*.code-workspace

@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: subfinderx-backend
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: python backend/app.py
