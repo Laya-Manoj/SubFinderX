@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import traceback
 from pathlib import Path
 from typing import Any, Dict
 
@@ -16,13 +17,31 @@ from report_generator import generate_report
 from scanner_wrapper import run_scan
 
 app = Flask(__name__)
-CORS(app)  # Proper CORS handling
+CORS(app)  # Enable CORS properly
 
 # In-memory storage (temporary)
 SCAN_HISTORY: list[Dict[str, Any]] = []
 REPORT_INDEX: Dict[str, Dict[str, str]] = {}
 
 
+# ---------------------------
+# SAFE ASYNC RUNNER (IMPORTANT)
+# ---------------------------
+def run_async_safe(coro):
+    """
+    Runs async function safely inside Flask/Gunicorn
+    """
+    try:
+        return asyncio.run(coro)
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+
+
+# ---------------------------
+# SCAN ENDPOINT
+# ---------------------------
 @app.route("/scan", methods=["POST"])
 def scan():
     payload = request.get_json(silent=True) if request.is_json else request.form.to_dict()
@@ -47,19 +66,34 @@ def scan():
         return jsonify({"error": "Unauthorized scan"}), 403
 
     try:
-        result = asyncio.run(
-            run_scan(
-                domain=domain,
-                authorized=authorized,
-                include_bruteforce=bool(payload.get("include_bruteforce", True)),
-                scan_mode=scan_mode,
-                wordlist_path=payload.get("wordlist_path"),
-                user_wordlist_lines=wordlist_lines,
+        # ---------------------------
+        # TIME-LIMITED SCAN (IMPORTANT)
+        # ---------------------------
+        async def limited_scan():
+            return await asyncio.wait_for(
+                run_scan(
+                    domain=domain,
+                    authorized=authorized,
+                    include_bruteforce=True,  # KEEP BRUTEFORCE
+                    scan_mode=scan_mode,
+                    wordlist_path=payload.get("wordlist_path"),
+                    user_wordlist_lines=wordlist_lines,
+                ),
+                timeout=20  # prevent Render timeout death
             )
-        )
+
+        result = run_async_safe(limited_scan())
+
+    except asyncio.TimeoutError:
+        return jsonify({"error": "Scan timed out (server limit reached)"}), 408
+
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": f"Scan failed: {str(e)}"}), 500
 
+    # ---------------------------
+    # REPORT GENERATION
+    # ---------------------------
     report_paths = generate_report(result)
     report_id = Path(report_paths["json_report"]).stem
 
@@ -78,11 +112,17 @@ def scan():
     })
 
 
+# ---------------------------
+# HISTORY ENDPOINT
+# ---------------------------
 @app.route("/history", methods=["GET"])
 def history():
     return jsonify({"history": SCAN_HISTORY})
 
 
+# ---------------------------
+# REPORT DOWNLOAD
+# ---------------------------
 @app.route("/report/<report_id>", methods=["GET"])
 def download_report(report_id: str):
     report = REPORT_INDEX.get(report_id)
@@ -101,6 +141,17 @@ def download_report(report_id: str):
     return send_file(report_path, as_attachment=True)
 
 
+# ---------------------------
+# HEALTH CHECK (VERY USEFUL)
+# ---------------------------
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({"status": "SubFinderX backend running"})
+
+
+# ---------------------------
+# ENTRY POINT
+# ---------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
