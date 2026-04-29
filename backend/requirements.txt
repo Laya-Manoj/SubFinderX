@@ -2,3 +2,4 @@ flask
 httpx
 dnspython
 gunicorn
+flask-cors
