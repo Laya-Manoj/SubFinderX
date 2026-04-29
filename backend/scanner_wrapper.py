@@ -15,6 +15,8 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Dict, Iterable, List, Set
 
+import httpx
+
 from core.active.bruteforce import brute_force
 from core.active.http_probe import bulk_probe
 from core.passive.chaos import fetch_chaos
@@ -28,10 +30,19 @@ from core.utils.dedupe import dedupe_subdomains
 # Keep scans lightweight and ethical by default.
 MAX_SUBDOMAINS = 400
 MAX_BRUTEFORCE_WORDS = 5000
-DEFAULT_PORTS = [80, 443, 8080, 8443, 22]
-PORT_TIMEOUT_SECONDS = 1.0
+COMMON_PORTS = [21, 22, 25, 53, 80, 110, 143, 443, 445, 8080]
+PORT_TIMEOUT_SECONDS = 0.5
+LIVE_ANALYSIS_LIMIT = 15
 DEFAULT_WORDLIST_PATH = Path(__file__).parent / "wordlists" / "default_wordlist.txt"
 FALLBACK_WORDS = ["www", "api", "app", "admin", "portal", "dev", "staging", "test", "mail", "cdn"]
+SECURITY_HEADERS = [
+    "Strict-Transport-Security",
+    "Content-Security-Policy",
+    "X-Frame-Options",
+    "X-Content-Type-Options",
+    "Referrer-Policy",
+    "Permissions-Policy",
+]
 
 
 def classify_subdomain(name: str) -> str:
@@ -45,24 +56,42 @@ def classify_subdomain(name: str) -> str:
     return "others"
 
 
-async def scan_ports(host: str, ports: List[int] | None = None) -> List[int]:
-    """Perform a lightweight async TCP connect scan."""
+def scan_common_ports(domain: str) -> Dict[str, List[int]]:
+    """Lightweight common port scan with short socket timeout."""
     open_ports: List[int] = []
-    target_ports = ports or DEFAULT_PORTS
-
-    async def check_port(port: int) -> None:
+    closed_ports: List[int] = []
+    for port in COMMON_PORTS:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(PORT_TIMEOUT_SECONDS)
         try:
-            conn = asyncio.open_connection(host, port)
-            reader, writer = await asyncio.wait_for(conn, timeout=PORT_TIMEOUT_SECONDS)
-            writer.close()
-            await writer.wait_closed()
-            _ = reader
-            open_ports.append(port)
-        except (asyncio.TimeoutError, OSError, socket.gaierror):
-            return
+            if sock.connect_ex((domain, port)) == 0:
+                open_ports.append(port)
+            else:
+                closed_ports.append(port)
+        except OSError:
+            closed_ports.append(port)
+        finally:
+            sock.close()
+    return {"open_ports": sorted(open_ports), "closed_ports": sorted(closed_ports)}
 
-    await asyncio.gather(*(check_port(port) for port in target_ports))
-    return sorted(open_ports)
+
+async def analyze_security_headers(url: str) -> Dict[str, Any]:
+    """Analyze key security headers from an HTTP response."""
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        response = None
+        for target_url in (url, url.replace("https://", "http://")):
+            try:
+                response = await client.get(target_url, timeout=6.0)
+                break
+            except Exception:
+                continue
+
+    if response is None:
+        return {"headers_present": {}, "missing_headers": list(SECURITY_HEADERS)}
+
+    present = {header: bool(response.headers.get(header)) for header in SECURITY_HEADERS}
+    missing = [header for header, exists in present.items() if not exists]
+    return {"headers_present": present, "missing_headers": missing}
 
 
 async def run_scan(
@@ -110,10 +139,15 @@ async def run_scan(
     # LIVE is based only on successful HTTP responses in the 2xx-3xx range.
     http_live_hosts = [host for host in discovered_subs if (http_results.get(host) and http_results[host].is_live)]
 
-    open_ports: Dict[str, List[int]] = {}
-    if http_live_hosts:
-        port_results = await asyncio.gather(*(scan_ports(host) for host in http_live_hosts))
-        open_ports = {host: ports for host, ports in zip(http_live_hosts, port_results, strict=False) if ports}
+    analysis_targets = http_live_hosts[:LIVE_ANALYSIS_LIMIT]
+    port_details: Dict[str, Dict[str, List[int]]] = {}
+    security_headers: Dict[str, Dict[str, Any]] = {}
+
+    if analysis_targets:
+        port_results = await asyncio.gather(*(asyncio.to_thread(scan_common_ports, host) for host in analysis_targets))
+        port_details = {host: result for host, result in zip(analysis_targets, port_results, strict=False)}
+        header_results = await asyncio.gather(*(analyze_security_headers(f"https://{host}") for host in analysis_targets))
+        security_headers = {host: result for host, result in zip(analysis_targets, header_results, strict=False)}
 
     status_codes = Counter()
     live_subdomains: List[Dict[str, Any]] = []
@@ -133,9 +167,14 @@ async def run_scan(
                     "name": sub,
                     "status": http_info.status_code if http_info else None,
                     "title": http_info.title if http_info else "",
-                    "open_ports": open_ports.get(sub, []),
+                    "open_ports": port_details.get(sub, {}).get("open_ports", []),
+                    "closed_ports": port_details.get(sub, {}).get("closed_ports", []),
+                    "security_headers": security_headers.get(
+                        sub, {"headers_present": {}, "missing_headers": list(SECURITY_HEADERS)}
+                    ),
                     "redirect_to": http_info.redirect_to if http_info else "",
                     "source": sorted(source_map.get(sub, {"passive"})),
+                    "is_live": True,
                 }
             )
         else:
@@ -146,7 +185,11 @@ async def run_scan(
                 "name": sub,
                 "status": http_info.status_code if http_info else None,
                 "title": http_info.title if http_info else "",
-                "open_ports": open_ports.get(sub, []),
+                "open_ports": port_details.get(sub, {}).get("open_ports", []),
+                "closed_ports": port_details.get(sub, {}).get("closed_ports", []),
+                "security_headers": security_headers.get(
+                    sub, {"headers_present": {}, "missing_headers": list(SECURITY_HEADERS)}
+                ),
                 "redirect_to": http_info.redirect_to if http_info else "",
                 "source": sorted(source_map.get(sub, {"passive"})),
                 "is_live": is_live,
@@ -169,7 +212,7 @@ async def run_scan(
         "passive_count": passive_count,
         "subdomains": subdomains,
         "status_codes": dict(status_codes),
-        "open_ports": open_ports,
+        "analyzed_live_subdomains": len(analysis_targets),
         "wordlist": wordlist_meta,
         "classified": {
             "admin": sorted(classified["admin"]),

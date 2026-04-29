@@ -25,6 +25,7 @@ function ResultsTable({ data }) {
             <th>Status</th>
             <th>Title</th>
             <th>Ports</th>
+            <th>Missing Security Headers</th>
             <th>Source</th>
           </tr>
         </thead>
@@ -39,6 +40,11 @@ function ResultsTable({ data }) {
               <td className={statusClassName(item.status)}>{item.status || "-"}</td>
               <td>{item.title || "-"}</td>
               <td>{item.open_ports.length ? item.open_ports.join(", ") : "-"}</td>
+              <td className="missing-headers">
+                {item.security_headers?.missing_headers?.length
+                  ? item.security_headers.missing_headers.join(", ")
+                  : "None"}
+              </td>
               <td>{item.source?.join(", ") || "-"}</td>
             </tr>
           ))}

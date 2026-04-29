@@ -52,6 +52,7 @@ def _build_html(data: Dict[str, Any]) -> str:
 
     live_rows = []
     for entry in live_entries:
+        missing_headers = entry.get("security_headers", {}).get("missing_headers", [])
         live_rows.append(
             "<tr>"
             f"<td>{entry.get('name', '')}</td>"
@@ -59,6 +60,7 @@ def _build_html(data: Dict[str, Any]) -> str:
             f"<td>{entry.get('title', '')}</td>"
             f"<td>{entry.get('redirect_to', '') or '-'}</td>"
             f"<td>{', '.join(str(p) for p in entry.get('open_ports', []))}</td>"
+            f"<td>{', '.join(missing_headers) if missing_headers else 'None'}</td>"
             f"<td>{', '.join(entry.get('source', []))}</td>"
             "</tr>"
         )
@@ -102,6 +104,7 @@ def _build_html(data: Dict[str, Any]) -> str:
       <p>Passive count: {cleaned_data.get('passive_count', 0)}</p>
       <p>Brute-force count: {cleaned_data.get('brute_force_count', 0)}</p>
       <p>Wordlist entries used: {cleaned_data.get('wordlist', {}).get('combined_entries', 0)}</p>
+      <p>Live hosts analyzed (headers/ports): {cleaned_data.get('analyzed_live_subdomains', 0)}</p>
     </div>
     <div class="card">
       <canvas id="liveChart"></canvas>
@@ -113,7 +116,7 @@ def _build_html(data: Dict[str, Any]) -> str:
   <h2>Live Subdomains</h2>
   <table>
     <thead>
-      <tr><th>Subdomain</th><th>Status</th><th>Title</th><th>Redirect To</th><th>Open Ports</th><th>Source</th></tr>
+      <tr><th>Subdomain</th><th>Status</th><th>Title</th><th>Redirect To</th><th>Open Ports</th><th>Missing Security Headers</th><th>Source</th></tr>
     </thead>
     <tbody>
       {"".join(live_rows)}

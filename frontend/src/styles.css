@@ -240,6 +240,10 @@ tbody tr:hover {
   font-weight: 700;
 }
 
+.missing-headers {
+  color: #ef4444;
+}
+
 .subdomain-link {
   color: #ff6b6b;
   text-decoration: none;

@@ -39,6 +39,7 @@ function Dashboard({ data }) {
         <p><strong>Passive count:</strong> {data.passive_count}</p>
         <p><strong>Brute-force count:</strong> {data.brute_force_count}</p>
         <p><strong>Wordlist entries:</strong> {data.wordlist?.combined_entries ?? 0}</p>
+        <p><strong>Security analysis coverage:</strong> {data.analyzed_live_subdomains ?? 0} live hosts</p>
         <p><strong>Scan mode:</strong> {data.scan_mode === "full" ? "Full Scan" : "Quick Scan"}</p>
       </article>
 
