@@ -33,7 +33,7 @@ function App() {
         formData.append("wordlist_file", wordlistFile);
       }
 
-      const response = await fetch("http://127.0.0.1:5000/scan", {
+      const response = await fetch("https://subfinderx-backend.onrender.com/scan", {
         method: "POST",
         body: formData,
       });
