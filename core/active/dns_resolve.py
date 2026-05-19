@@ -11,7 +11,7 @@ import dns.asyncresolver
 import dns.exception
 
 
-async def resolve_host(host: str) -> Tuple[bool, List[str]]:
+async def resolve_host(host: str, lifetime: float = 5.0) -> Tuple[bool, List[str]]:
     """
     Resolve a hostname to A/AAAA/CNAME records.
 
@@ -25,7 +25,7 @@ async def resolve_host(host: str) -> Tuple[bool, List[str]]:
     for rtype in ("A", "AAAA", "CNAME"):
         for attempt in range(2):
             try:
-                answer = await resolver.resolve(host, rtype, lifetime=5.0)
+                answer = await resolver.resolve(host, rtype, lifetime=lifetime)
                 for rr in answer:
                     records.append(f"{rtype} {rr.to_text()}")
                 live = True
@@ -42,7 +42,11 @@ async def resolve_host(host: str) -> Tuple[bool, List[str]]:
     return live, records
 
 
-async def bulk_resolve(hosts: List[str], concurrency: int = 25) -> Dict[str, Tuple[bool, List[str]]]:
+async def bulk_resolve(
+    hosts: List[str],
+    concurrency: int = 25,
+    lifetime: float = 5.0,
+) -> Dict[str, Tuple[bool, List[str]]]:
     """
     Resolve many hosts concurrently with a semaphore.
     """
@@ -52,7 +56,7 @@ async def bulk_resolve(hosts: List[str], concurrency: int = 25) -> Dict[str, Tup
 
     async def _worker(h: str) -> None:
         async with sem:
-            is_live, recs = await resolve_host(h)
+            is_live, recs = await resolve_host(h, lifetime=lifetime)
             results[h] = (is_live, recs)
 
     await asyncio.gather(*[_worker(h) for h in hosts])

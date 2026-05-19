@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-function ScanForm({ onSubmit, loading }) {
+function ScanForm({ onSubmit, loading, loadingPhase }) {
   const [domain, setDomain] = useState("");
   const [wordlistText, setWordlistText] = useState("");
   const [wordlistFile, setWordlistFile] = useState(null);
@@ -22,12 +22,17 @@ function ScanForm({ onSubmit, loading }) {
           value={domain}
           onChange={(event) => setDomain(event.target.value)}
           required
+          disabled={loading}
         />
       </label>
 
       <label className="field-label">
         Scan Mode
-        <select value={scanMode} onChange={(event) => setScanMode(event.target.value)}>
+        <select
+          value={scanMode}
+          onChange={(event) => setScanMode(event.target.value)}
+          disabled={loading}
+        >
           <option value="quick">Quick Scan</option>
           <option value="full">Full Scan</option>
         </select>
@@ -39,6 +44,7 @@ function ScanForm({ onSubmit, loading }) {
           type="file"
           accept=".txt,text/plain"
           onChange={(event) => setWordlistFile(event.target.files?.[0] || null)}
+          disabled={loading}
         />
       </label>
 
@@ -49,6 +55,7 @@ function ScanForm({ onSubmit, loading }) {
           placeholder={"admin\napi\nstaging"}
           value={wordlistText}
           onChange={(event) => setWordlistText(event.target.value)}
+          disabled={loading}
         />
       </label>
 
@@ -66,7 +73,9 @@ function ScanForm({ onSubmit, loading }) {
           "Start Recon"
         )}
       </button>
-      {loading ? <p className="loading-text">Scanning target... please wait</p> : null}
+      {loading && loadingPhase ? (
+        <p className="loading-text form-loading">{loadingPhase}</p>
+      ) : null}
     </form>
   );
 }

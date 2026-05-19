@@ -3,3 +3,4 @@ httpx
 dnspython
 gunicorn
 flask-cors
+reportlab
