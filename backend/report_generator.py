@@ -17,6 +17,10 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from post_scan import strip_screenshot_fields
+from risk_analysis import apply_risk_analysis, compute_risk
+from security_observation import compute_security_observation
+
 logger = logging.getLogger("subfinderx.reports")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -86,7 +90,7 @@ def _clean_entries(data: Dict[str, Any]) -> Dict[str, Any]:
             "unverified": len(unverified_entries),
             "open_ports_found": open_ports_found,
         }
-    return cleaned
+    return strip_screenshot_fields(cleaned)
 
 
 def _build_html(data: Dict[str, Any]) -> str:
@@ -100,22 +104,55 @@ def _build_html(data: Dict[str, Any]) -> str:
     ]
     live_count = len(live_entries)
     dead_count = len(dead_entries)
-    status_codes = data.get("status_codes", {})
+    scan_summary = cleaned_data.get("scan_summary", {})
+    risk_summary = cleaned_data.get("risk_summary") or {
+        "high": scan_summary.get("high_risk", 0),
+        "medium": scan_summary.get("medium_risk", 0),
+        "low": scan_summary.get("low_risk", 0),
+    }
+    inactive_count = scan_summary.get("inactive", 0) + scan_summary.get("unverified", 0)
     domain = cleaned_data.get("domain", "")
     scanned_at = cleaned_data.get("scanned_at", "")
+
+    def _html_observation_cell(entry: Dict[str, Any]) -> str:
+        obs = entry.get("security_observation")
+        level = entry.get("security_observation_level")
+        if not obs:
+            computed = compute_security_observation(entry)
+            obs = computed["security_observation"]
+            level = computed["security_observation_level"]
+        css = "obs-neutral"
+        if level == "warn":
+            css = "obs-warn"
+        elif level == "info":
+            css = "obs-info"
+        return f"<td class='{css}'>{escape(str(obs))}</td>"
+
+    def _html_risk_cell(entry: Dict[str, Any]) -> str:
+        level = entry.get("risk_level")
+        if not level or level == "N/A":
+            level = compute_risk(entry)["risk_level"]
+        css = {
+            "High": "risk-high",
+            "Medium": "risk-medium",
+            "Low": "risk-low",
+        }.get(str(level), "risk-na")
+        return f"<td class='{css}'>{escape(str(level))}</td>"
 
     live_rows = []
     for entry in live_entries:
         missing_headers = entry.get("security_headers", {}).get("missing_headers", [])
         live_rows.append(
             "<tr>"
-            f"<td>{entry.get('name', '')}</td>"
-            f"<td>{entry.get('status', '')}</td>"
-            f"<td>{entry.get('title', '')}</td>"
-            f"<td>{entry.get('redirect_to', '') or '-'}</td>"
-            f"<td>{', '.join(str(p) for p in entry.get('open_ports', []))}</td>"
-            f"<td>{', '.join(missing_headers) if missing_headers else 'None'}</td>"
-            f"<td>{', '.join(entry.get('source', []))}</td>"
+            f"<td>{escape(str(entry.get('name', '')))}</td>"
+            f"{_html_risk_cell(entry)}"
+            f"<td>{escape(str(entry.get('status', '')))}</td>"
+            f"<td>{escape(str(entry.get('title', '')))}</td>"
+            f"<td>{escape(str(entry.get('redirect_to', '') or '-'))}</td>"
+            f"<td>{escape(', '.join(str(p) for p in entry.get('open_ports', [])) or '-')}</td>"
+            f"<td>{escape(', '.join(missing_headers) if missing_headers else 'None')}</td>"
+            f"{_html_observation_cell(entry)}"
+            f"<td>{escape(', '.join(entry.get('source', []) or []))}</td>"
             "</tr>"
         )
 
@@ -153,6 +190,13 @@ def _build_html(data: Dict[str, Any]) -> str:
     table {{ border-collapse: collapse; width: 100%; }}
     th, td {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
     th {{ background-color: #f6f6f6; }}
+    .obs-warn {{ color: #b45309; background: #fffbeb; }}
+    .obs-info {{ color: #1d4ed8; background: #eff6ff; }}
+    .obs-neutral {{ color: #374151; }}
+    .risk-high {{ color: #b91c1c; font-weight: 700; }}
+    .risk-medium {{ color: #b45309; font-weight: 700; }}
+    .risk-low {{ color: #15803d; font-weight: 700; }}
+    .risk-na {{ color: #6b7280; }}
   </style>
 </head>
 <body>
@@ -165,7 +209,9 @@ def _build_html(data: Dict[str, Any]) -> str:
       <h3>Summary</h3>
       <p>Total subdomains: {cleaned_data.get('total_subdomains', 0)}</p>
       <p>Live: {live_count}</p>
-      <p>Dead: {dead_count}</p>
+      <p>Inactive / unverified: {inactive_count}</p>
+      <p>High-risk live hosts: {risk_summary.get('high', 0)}</p>
+      <p>Open ports discovered: {scan_summary.get('open_ports_found', 0)}</p>
       <p>Passive count: {cleaned_data.get('passive_count', 0)}</p>
       <p>Brute-force count: {cleaned_data.get('brute_force_count', 0)}</p>
       <p>Wordlist entries used: {cleaned_data.get('wordlist', {}).get('combined_entries', 0)}</p>
@@ -175,13 +221,13 @@ def _build_html(data: Dict[str, Any]) -> str:
       <canvas id="liveChart"></canvas>
     </div>
     <div class="card">
-      <canvas id="statusChart"></canvas>
+      <canvas id="riskChart"></canvas>
     </div>
   </div>
   <h2>Live Subdomains</h2>
   <table>
     <thead>
-      <tr><th>Subdomain</th><th>Status</th><th>Title</th><th>Redirect To</th><th>Open Ports</th><th>Missing Security Headers</th><th>Source</th></tr>
+      <tr><th>Subdomain</th><th>Risk</th><th>Status</th><th>Title</th><th>Redirect To</th><th>Open Ports</th><th>Missing Security Headers</th><th>Security Observation</th><th>Source</th></tr>
     </thead>
     <tbody>
       {"".join(live_rows)}
@@ -206,21 +252,21 @@ def _build_html(data: Dict[str, Any]) -> str:
     </tbody>
   </table>
   <script>
-    const statusCodes = {json.dumps(status_codes)};
     new Chart(document.getElementById('liveChart'), {{
       type: 'pie',
       data: {{
-        labels: ['Live', 'Dead'],
-        datasets: [{{ data: [{live_count}, {dead_count}] }}]
+        labels: ['Live', 'Inactive'],
+        datasets: [{{ data: [{live_count}, {inactive_count}], backgroundColor: ['#22c55e', '#64748b'] }}]
       }}
     }});
 
-    new Chart(document.getElementById('statusChart'), {{
+    new Chart(document.getElementById('riskChart'), {{
       type: 'bar',
       data: {{
-        labels: Object.keys(statusCodes),
-        datasets: [{{ label: 'Status Codes', data: Object.values(statusCodes) }}]
-      }}
+        labels: ['High', 'Medium', 'Low'],
+        datasets: [{{ label: 'Risk Levels', data: [{risk_summary.get("high", 0)}, {risk_summary.get("medium", 0)}, {risk_summary.get("low", 0)}], backgroundColor: ['#ef4444', '#f59e0b', '#22c55e'] }}]
+      }},
+      options: {{ scales: {{ y: {{ beginAtZero: true, ticks: {{ stepSize: 1 }} }} }} }}
     }});
   </script>
 </body>
@@ -399,8 +445,8 @@ def _build_pdf_data_table(
 
 
 def _build_pdf_summary_cards(summary: Dict[str, Any], styles: Dict[str, ParagraphStyle]) -> Table:
-    labels = ["Total Subdomains", "Live", "Inactive", "Unverified", "Open Ports"]
-    keys = ["total", "live", "inactive", "unverified", "open_ports_found"]
+    labels = ["Total", "Live", "Inactive", "High Risk", "Open Ports"]
+    keys = ["total", "live", "inactive", "high_risk", "open_ports_found"]
     col_w = _PDF_CONTENT_WIDTH / len(labels)
     label_row = [_pdf_para(escape(label), styles["summary_label"]) for label in labels]
     value_row = [
@@ -485,19 +531,32 @@ def _build_pdf(data: Dict[str, Any], pdf_path: Path) -> None:
         bottomMargin=0.85 * inch,
     )
 
-    # Column widths: subdomain wide, missing headers widest, status/ports/source small
     live_col_widths = [
-        2.05 * inch,  # Subdomain
-        0.55 * inch,  # Status
-        1.45 * inch,  # Title
-        0.6 * inch,   # Open Ports
-        2.65 * inch,  # Missing Headers
+        1.35 * inch,  # Subdomain
+        0.42 * inch,  # Risk
+        0.48 * inch,  # Status
+        0.9 * inch,   # Title
+        0.5 * inch,   # Open Ports
+        1.2 * inch,   # Missing Headers
+        2.15 * inch,  # Security Observation
     ]
     three_col_widths = [
         3.6 * inch,   # Subdomain
         0.75 * inch,  # Status
         2.95 * inch,  # Source
     ]
+
+    def _pdf_observation_text(entry: Dict[str, Any]) -> str:
+        obs = entry.get("security_observation")
+        if obs:
+            return str(obs)
+        return compute_security_observation(entry)["security_observation"]
+
+    def _pdf_risk_level(entry: Dict[str, Any]) -> str:
+        level = entry.get("risk_level")
+        if level and level != "N/A":
+            return str(level)
+        return compute_risk(entry)["risk_level"]
 
     def _live_rows(entries: List[Dict[str, Any]], cell_style: ParagraphStyle) -> List[List[Paragraph]]:
         built: List[List[Paragraph]] = []
@@ -507,10 +566,12 @@ def _build_pdf(data: Dict[str, Any], pdf_path: Path) -> None:
             built.append(
                 [
                     _pdf_cell(entry.get("name", ""), cell_style),
+                    _pdf_cell(_pdf_risk_level(entry), cell_style),
                     _pdf_cell(entry.get("status", ""), cell_style),
                     _pdf_cell(entry.get("title", ""), cell_style),
                     _pdf_cell(_pdf_join(ports), cell_style),
                     Paragraph(_pdf_missing_headers_html(missing), cell_style),
+                    _pdf_cell(_pdf_observation_text(entry), cell_style),
                 ]
             )
         return built
@@ -557,7 +618,7 @@ def _build_pdf(data: Dict[str, Any], pdf_path: Path) -> None:
             story,
             "Live Subdomains",
             styles,
-            ["Subdomain", "Status", "Title", "Open Ports", "Missing Headers"],
+            ["Subdomain", "Risk", "Status", "Title", "Open Ports", "Missing Headers", "Security Observation"],
             _live_rows,
             live_entries,
             live_col_widths,
@@ -599,6 +660,8 @@ def generate_report(data: Dict[str, Any]) -> Dict[str, str]:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
     cleaned_data = _clean_entries(data)
+    if not cleaned_data.get("risk_summary"):
+        apply_risk_analysis(cleaned_data)
     domain = cleaned_data.get("domain", "unknown-domain").replace(".", "_")
     file_base = f"subfinderx_report_{domain}"
 

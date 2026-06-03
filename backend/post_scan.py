@@ -1,30 +1,30 @@
 """
-Post-scan enrichment: risk analysis, analytics, screenshots.
+Post-scan enrichment: risk analysis and analytics.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import re
 from collections import Counter
-from datetime import datetime
 from typing import Any, Dict
 
 from risk_analysis import apply_risk_analysis
-from screenshot_capture import capture_screenshots_for_scan
+from security_observation import apply_security_observations
 
 logger = logging.getLogger("subfinderx.post_scan")
 
-SCREENSHOT_BUDGET_QUICK = 18.0
-SCREENSHOT_BUDGET_FULL = 45.0
+_SCREENSHOT_ENTRY_KEYS = ("screenshot_url", "screenshot_path")
+_SCREENSHOT_RESULT_KEYS = ("screenshot_session", "scan_session")
 
 
-def _session_id(result: Dict[str, Any]) -> str:
-    domain = re.sub(r"[^a-zA-Z0-9._-]+", "_", result.get("domain", "scan"))
-    ts = (result.get("scanned_at") or datetime.utcnow().isoformat())[:19]
-    ts = ts.replace(":", "").replace("-", "").replace("T", "_")
-    return f"{domain}_{ts}"
+def strip_screenshot_fields(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Ignore legacy screenshot metadata from older scan results."""
+    for key in _SCREENSHOT_RESULT_KEYS:
+        result.pop(key, None)
+    for entry in result.get("subdomains", []):
+        for key in _SCREENSHOT_ENTRY_KEYS:
+            entry.pop(key, None)
+    return result
 
 
 def build_analytics(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -50,32 +50,16 @@ def build_analytics(result: Dict[str, Any]) -> Dict[str, Any]:
     return analytics
 
 
-async def enrich_scan_result(result: Dict[str, Any], scan_mode: str) -> Dict[str, Any]:
-    """
-    Apply risk scoring, analytics, and optional screenshots without failing the scan.
-    """
-    session_id = _session_id(result)
-    result["scan_session"] = session_id
-
-    logger.info("risk analysis started")
+def enrich_scan_result(result: Dict[str, Any], scan_mode: str) -> Dict[str, Any]:
+    """Apply risk scoring, security observations, and analytics."""
+    logger.info("post-scan enrichment started (mode=%s)", scan_mode)
     apply_risk_analysis(result)
+    apply_security_observations(result)
     build_analytics(result)
     logger.info(
-        "risk analysis completed: high=%d medium=%d low=%d",
+        "post-scan enrichment completed: high=%d medium=%d low=%d",
         result.get("risk_summary", {}).get("high", 0),
         result.get("risk_summary", {}).get("medium", 0),
         result.get("risk_summary", {}).get("low", 0),
     )
-
-    budget = SCREENSHOT_BUDGET_QUICK if scan_mode == "quick" else SCREENSHOT_BUDGET_FULL
-    try:
-        await asyncio.wait_for(
-            capture_screenshots_for_scan(result, session_id, scan_mode),
-            timeout=budget,
-        )
-    except asyncio.TimeoutError:
-        logger.warning("screenshot capture timed out after %.0fs", budget)
-    except Exception as exc:
-        logger.warning("screenshot capture error: %s", exc)
-
-    return result
+    return strip_screenshot_fields(result)

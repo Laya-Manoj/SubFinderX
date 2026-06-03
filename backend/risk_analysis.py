@@ -1,52 +1,16 @@
 """
-Risk scoring for discovered live subdomains.
+Lightweight risk scoring for discovered live subdomains.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
-SENSITIVE_KEYWORDS = (
-    "admin",
-    "dev",
-    "test",
-    "uat",
-    "staging",
-    "intranet",
-    "portal",
-    "dashboard",
-    "api",
-    "internal",
-    "vpn",
-    "jenkins",
-    "grafana",
-    "kibana",
-)
+PRIMARY_KEYWORDS = ("admin", "api", "dev", "staging", "internal", "test")
+HIGH_RISK_KEYWORDS = ("admin", "dev", "staging", "internal")
+UNUSUAL_PORTS = {21, 22, 23, 25, 110, 143, 445, 3306, 3389, 5432, 6379, 8080, 8443}
 
-LOGIN_TITLE_KEYWORDS = (
-    "login",
-    "log in",
-    "sign in",
-    "signin",
-    "authentication",
-    "authenticate",
-    "sso",
-    "password",
-    "portal access",
-)
-
-INTERNAL_PATTERNS = (
-    "intranet",
-    "internal",
-    "corp",
-    "local",
-    "private",
-    "vpn",
-    "adfs",
-)
-
-RISKY_PORTS = {21, 22, 23, 25, 110, 143, 445, 3306, 3389, 5432, 6379, 8080, 8443}
-HIGH_RISK_PORTS = {22, 445, 3389, 3306, 6379}
+_LEVEL_SCORE = {"High": 7, "Medium": 4, "Low": 1}
 
 
 def _status_code(entry: Dict[str, Any]) -> int | None:
@@ -57,69 +21,73 @@ def _status_code(entry: Dict[str, Any]) -> int | None:
         return None
 
 
+def _is_http_accessible(entry: Dict[str, Any], status: int | None) -> bool:
+    if entry.get("is_live") or entry.get("status_label") == "active":
+        return True
+    return status is not None and 200 <= status < 400
+
+
+def _port_ints(open_ports: List[Any]) -> List[int]:
+    ports: List[int] = []
+    for port in open_ports:
+        try:
+            ports.append(int(port))
+        except (TypeError, ValueError):
+            continue
+    return ports
+
+
 def compute_risk(entry: Dict[str, Any]) -> Dict[str, Any]:
-    """Return risk_level, risk_score, and risk_factors for a subdomain entry."""
-    score = 0
-    factors: List[str] = []
+    """Return risk_level, risk_score, and risk_factors for a live subdomain entry."""
     name = str(entry.get("name", "")).lower()
-    title = str(entry.get("title", "")).lower()
     missing = entry.get("security_headers", {}).get("missing_headers") or []
-    open_ports = entry.get("open_ports") or []
+    ports = _port_ints(entry.get("open_ports") or [])
     status = _status_code(entry)
 
-    for keyword in SENSITIVE_KEYWORDS:
-        if keyword in name:
-            score += 2
-            factors.append(f"Sensitive keyword: {keyword}")
-            break
+    missing_count = len(missing)
+    port_count = len(ports)
+    sensitive = any(keyword in name for keyword in PRIMARY_KEYWORDS)
+    high_keyword = any(keyword in name for keyword in HIGH_RISK_KEYWORDS)
+    unusual_port = any(port in UNUSUAL_PORTS for port in ports)
+    http_accessible = _is_http_accessible(entry, status)
 
-    for pattern in INTERNAL_PATTERNS:
-        if pattern in name:
-            score += 2
-            factors.append(f"Internal naming pattern: {pattern}")
-            break
+    factors: List[str] = []
+    level = "Low"
 
-    for keyword in LOGIN_TITLE_KEYWORDS:
-        if keyword in title:
-            score += 2
-            factors.append("Login-related page title")
-            break
+    if http_accessible:
+        factors.append("HTTP-accessible host")
 
-    if missing:
-        score += min(3, len(missing))
-        factors.append(f"{len(missing)} missing security header(s)")
-
-    if open_ports:
-        score += 1
-        factors.append(f"{len(open_ports)} exposed port(s)")
-        if any(int(p) in HIGH_RISK_PORTS for p in open_ports):
-            score += 2
-            factors.append("High-risk service port exposed")
-        elif any(int(p) in RISKY_PORTS for p in open_ports):
-            score += 1
-            factors.append("Risky service port exposed")
-
-    if status is not None:
-        if status in (401, 403):
-            score += 2
-            factors.append(f"Restricted HTTP status ({status})")
-        elif status >= 500:
-            score += 1
-            factors.append(f"Server error status ({status})")
-        elif status == 200 and not missing:
-            score = max(0, score - 1)
-
-    if score >= 7:
+    if high_keyword and missing_count >= 2 and port_count >= 2:
         level = "High"
-    elif score >= 4:
+        factors.append("Sensitive environment with weak headers and multiple exposed ports")
+    elif high_keyword and missing_count >= 2:
+        level = "High"
+        factors.append("Sensitive keyword with multiple missing security headers")
+    elif sensitive and missing_count >= 2 and (port_count >= 2 or unusual_port):
+        level = "High"
+        factors.append("Sensitive host with header gaps and unusual exposure")
+    elif missing_count >= 3:
         level = "Medium"
-    else:
-        level = "Low"
+        factors.append(f"{missing_count} missing security header(s)")
+    elif sensitive and missing_count >= 1:
+        level = "Medium"
+        factors.append("Sensitive keyword with missing security headers")
+    elif port_count >= 2 or unusual_port:
+        level = "Medium"
+        factors.append("Multiple or unusual open ports detected")
+    elif http_accessible and missing_count >= 2:
+        level = "Medium"
+        factors.append("Live host with several missing security headers")
+
+    if sensitive and "Sensitive keyword" not in " ".join(factors):
+        factors.append("Sensitive keyword in subdomain name")
+    if unusual_port and "unusual" not in " ".join(factors).lower():
+        factors.append("Unusual service port exposed")
 
     return {
         "risk_level": level,
-        "risk_score": score,
-        "risk_factors": factors[:8],
+        "risk_score": _LEVEL_SCORE[level],
+        "risk_factors": factors[:6],
     }
 
 

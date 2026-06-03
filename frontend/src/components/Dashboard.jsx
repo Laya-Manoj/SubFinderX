@@ -1,15 +1,19 @@
 import Charts from "./Charts";
 import ResultsTable from "./ResultsTable";
+import { getRiskSummary } from "../utils/riskScore";
 
 function Dashboard({ data }) {
   const summary = data.scan_summary || {};
+  const riskSummary = getRiskSummary(data);
   const liveCount = summary.live ?? data.live_subdomains?.length ?? 0;
   const inactiveCount =
     summary.inactive ??
     (data.subdomains || []).filter((item) => item.status_label === "inactive").length;
   const unverifiedCount =
     summary.unverified ?? data.unverified_subdomains?.length ?? 0;
+  const notLiveCount = inactiveCount + unverifiedCount;
   const totalCount = summary.total ?? data.total_subdomains ?? 0;
+  const highRiskCount = summary.high_risk ?? riskSummary.high ?? 0;
   const openPortsCount =
     summary.open_ports_found ??
     (data.subdomains || []).reduce(
@@ -55,6 +59,10 @@ function Dashboard({ data }) {
           <h3>Inactive Hosts</h3>
           <p className="summary-value">{inactiveCount}</p>
         </article>
+        <article className="counter risk">
+          <h3>High-Risk Hosts</h3>
+          <p className="summary-value">{highRiskCount}</p>
+        </article>
         <article className="counter ports">
           <h3>Open Ports Found</h3>
           <p className="summary-value">{openPortsCount}</p>
@@ -93,11 +101,7 @@ function Dashboard({ data }) {
 
       <article className="flat-panel fade-in">
         <h2>Charts</h2>
-        <Charts
-          liveCount={liveCount}
-          deadCount={inactiveCount + unverifiedCount}
-          statusCodes={data.status_codes}
-        />
+        <Charts liveCount={liveCount} inactiveCount={notLiveCount} riskSummary={riskSummary} />
       </article>
 
       <article className="flat-panel fade-in">

@@ -78,7 +78,7 @@ body {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
 }
 
@@ -120,8 +120,36 @@ body {
   color: #ef4444;
 }
 
+.counter.risk .summary-value {
+  color: #f97316;
+}
+
 .counter.ports .summary-value {
   color: #f59e0b;
+}
+
+.badge-risk-high {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+}
+
+.badge-risk-medium {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+}
+
+.badge-risk-low {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.badge-risk-na {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.35);
 }
 
 .badge {
@@ -324,6 +352,22 @@ tbody tr:hover {
 
 .missing-headers {
   color: #ef4444;
+}
+
+.security-observation {
+  color: #d4d4d4;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.security-observation-warn {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.security-observation-info {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.08);
 }
 
 .subdomain-link {

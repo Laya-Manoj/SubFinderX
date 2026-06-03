@@ -6,6 +6,7 @@ __pycache__/
 dist/
 build/
 backend/backend/reports/
+backend/screenshots/
 *.json
 *.html
 .vscode/

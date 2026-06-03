@@ -1,3 +1,12 @@
+import { getSecurityObservation, observationClassName } from "../utils/securityObservation";
+import { getRiskLevel } from "../utils/riskScore";
+import RiskBadge from "./RiskBadge";
+
+function SecurityObservationCell({ item }) {
+  const { text, level } = getSecurityObservation(item);
+  return <td className={observationClassName(level)}>{text}</td>;
+}
+
 function StatusBadge({ label }) {
   const normalized = (label || "inactive").toLowerCase();
   const className =
@@ -42,10 +51,12 @@ function ResultsTable({ data }) {
             <thead>
               <tr>
                 <th>Subdomain</th>
+                <th>Risk</th>
                 <th>Status</th>
                 <th>Title</th>
                 <th>Ports</th>
                 <th>Missing Security Headers</th>
+                <th>Security Observation</th>
                 <th>Source</th>
               </tr>
             </thead>
@@ -56,6 +67,9 @@ function ResultsTable({ data }) {
                     <a className="subdomain-link" href={getHostUrl(item)} target="_blank" rel="noreferrer">
                       {item.name}
                     </a>
+                  </td>
+                  <td>
+                    <RiskBadge level={getRiskLevel(item)} />
                   </td>
                   <td>
                     <StatusBadge label="active" />
@@ -70,12 +84,13 @@ function ResultsTable({ data }) {
                       ? item.security_headers.missing_headers.join(", ")
                       : "None"}
                   </td>
+                  <SecurityObservationCell item={item} />
                   <td>{item.source?.join(", ") || "-"}</td>
                 </tr>
               ))}
               {!liveRows.length ? (
                 <tr>
-                  <td colSpan={6}>No live hosts</td>
+                  <td colSpan={8}>No live hosts</td>
                 </tr>
               ) : null}
             </tbody>
@@ -91,6 +106,7 @@ function ResultsTable({ data }) {
               <tr>
                 <th>Subdomain</th>
                 <th>Status</th>
+                <th>Security Observation</th>
                 <th>Source</th>
               </tr>
             </thead>
@@ -101,12 +117,13 @@ function ResultsTable({ data }) {
                   <td>
                     <StatusBadge label="unverified" />
                   </td>
+                  <SecurityObservationCell item={item} />
                   <td>{item.source?.join(", ") || "-"}</td>
                 </tr>
               ))}
               {!unverifiedRows.length ? (
                 <tr>
-                  <td colSpan={3}>None</td>
+                  <td colSpan={4}>None</td>
                 </tr>
               ) : null}
             </tbody>
@@ -122,6 +139,7 @@ function ResultsTable({ data }) {
               <tr>
                 <th>Subdomain</th>
                 <th>Status</th>
+                <th>Security Observation</th>
                 <th>Source</th>
               </tr>
             </thead>
@@ -135,12 +153,13 @@ function ResultsTable({ data }) {
                       {item.status || "No HTTP response"}
                     </span>
                   </td>
+                  <SecurityObservationCell item={item} />
                   <td>{item.source?.join(", ") || "-"}</td>
                 </tr>
               ))}
               {!inactiveRows.length ? (
                 <tr>
-                  <td colSpan={3}>None</td>
+                  <td colSpan={4}>None</td>
                 </tr>
               ) : null}
             </tbody>

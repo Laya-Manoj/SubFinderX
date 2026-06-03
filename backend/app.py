@@ -14,6 +14,7 @@ from typing import Any, Dict
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 
+from post_scan import enrich_scan_result
 from report_generator import generate_report
 from scanner_wrapper import run_scan
 
@@ -117,6 +118,7 @@ def scan():
             )
 
         result = run_async_safe(limited_scan())
+        result = enrich_scan_result(result, scan_mode)
 
     except asyncio.TimeoutError:
 
