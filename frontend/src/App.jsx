@@ -56,7 +56,7 @@ function App() {
         formData.append("wordlist_file", wordlistFile);
       }
 
-      const response = await fetch(" https://ff90-13-233-199-106.ngrok-free.app/scan", {
+      const response = await fetch("https://13-233-199-106.sslip.io/scan", {
         method: "POST",
         body: formData,
         mode: "cors",
