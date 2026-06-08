@@ -27,6 +27,9 @@ def normalize_subdomain(name: str) -> str | None:
     if not candidate:
         return None
 
+    if "*" in candidate:
+        return None
+
     if not SUBDOMAIN_REGEX.match(candidate):
         return None
 

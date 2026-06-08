@@ -13,11 +13,7 @@ from typing import Dict, List, Set
 from subfinderx.core.active.bruteforce import brute_force
 from subfinderx.core.active.dns_resolve import bulk_resolve
 from subfinderx.core.active.http_probe import HTTPProbeResult, bulk_probe
-from subfinderx.core.passive.chaos import fetch_chaos
-from subfinderx.core.passive.crtsh import fetch_crtsh
-from subfinderx.core.passive.securitytrails import fetch_securitytrails
-from subfinderx.core.passive.virustotal import fetch_virustotal
-from subfinderx.core.passive.wayback import fetch_wayback
+from subfinderx.core.passive.orchestrator import enumerate_all_passive
 from subfinderx.core.utils.config import APIConfig, RuntimeConfig, load_api_config
 from subfinderx.core.utils.db import SubdomainRecord, get_historical_subdomains, init_db, upsert_subdomain
 from subfinderx.core.utils.dedupe import dedupe_subdomains
@@ -42,24 +38,16 @@ async def enumerate_passive(domain: str, api_cfg: APIConfig, rt_cfg: RuntimeConf
     Run all passive enumeration sources concurrently.
     """
 
-    coros = [
-        fetch_crtsh(domain, api_cfg),
-        fetch_wayback(domain, api_cfg),
-        fetch_chaos(domain, api_cfg),
-        fetch_virustotal(domain, api_cfg),
-        fetch_securitytrails(domain, api_cfg),
-    ]
-
     log_info("[*] Launching passive enumeration...", silent=rt_cfg.silent)
-    results = await asyncio.gather(*coros, return_exceptions=True)
-
-    all_subs: Set[str] = set()
-    for result in results:
-        if isinstance(result, Exception):
-            continue
-        all_subs.update(result)
-
-    return dedupe_subdomains(all_subs)
+    result = await enumerate_all_passive(
+        domain,
+        api_cfg,
+        max_retries=4,
+        use_cache=True,
+        per_source_timeout=None,
+        emit_print=not rt_cfg.silent,
+    )
+    return result.subdomains
 
 
 async def classify_and_persist(

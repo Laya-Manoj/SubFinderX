@@ -25,11 +25,8 @@ if not logger.handlers:
 from core.active.bruteforce import brute_force
 from core.active.dns_resolve import bulk_resolve, resolve_host
 from core.active.http_probe import bulk_probe
-from core.passive.chaos import fetch_chaos
-from core.passive.crtsh import fetch_crtsh
-from core.passive.securitytrails import fetch_securitytrails
-from core.passive.virustotal import fetch_virustotal
-from core.passive.wayback import fetch_wayback
+from core.passive.orchestrator import enumerate_all_passive
+from core.passive.types import PassiveEnumerationResult
 from core.utils.config import RuntimeConfig, load_api_config
 from core.utils.dedupe import dedupe_subdomains
 
@@ -49,7 +46,10 @@ SECURITY_HEADERS = [
     "Referrer-Policy",
     "Permissions-Policy",
 ]
-QUICK_PASSIVE_SOURCE_TIMEOUT = 5.0
+QUICK_PASSIVE_SOURCE_TIMEOUT = 10.0
+FULL_PASSIVE_SOURCE_TIMEOUT = 60.0
+QUICK_PASSIVE_MAX_RETRIES = 2
+FULL_PASSIVE_MAX_RETRIES = 4
 QUICK_HTTP_PROBE_TIMEOUT = 3.0
 QUICK_DNS_TIMEOUT = 2.0
 QUICK_PROBE_CONCURRENCY = 10
@@ -192,36 +192,16 @@ async def run_scan(
     )
 
 
-async def enumerate_passive_quick(domain: str, api_cfg) -> Set[str]:
-    """Run passive sources in parallel with per-source timeouts."""
-    sources = {
-        "crtsh": fetch_crtsh(domain, api_cfg),
-        "wayback": fetch_wayback(domain, api_cfg),
-        "chaos": fetch_chaos(domain, api_cfg),
-        "virustotal": fetch_virustotal(domain, api_cfg),
-        "securitytrails": fetch_securitytrails(domain, api_cfg),
-    }
-    collected: Set[str] = set()
-
-    async def _timed_fetch(name: str, coro) -> Set[str]:
-        try:
-            result = await asyncio.wait_for(coro, timeout=QUICK_PASSIVE_SOURCE_TIMEOUT)
-            count = len(result)
-            logger.info("enumeration source %s: %d results", name, count)
-            return set(result)
-        except asyncio.TimeoutError:
-            logger.warning("enumeration source %s: timed out after %.0fs", name, QUICK_PASSIVE_SOURCE_TIMEOUT)
-            return set()
-        except Exception as exc:
-            logger.warning("enumeration source %s: failed (%s)", name, exc)
-            return set()
-
-    tasks = [_timed_fetch(name, coro) for name, coro in sources.items()]
-    results = await asyncio.gather(*tasks)
-    for batch in results:
-        collected.update(batch)
-
-    return dedupe_subdomains(collected)
+async def enumerate_passive_quick(domain: str, api_cfg) -> PassiveEnumerationResult:
+    """Run passive sources in parallel with per-source timeouts and cache fallback."""
+    return await enumerate_all_passive(
+        domain,
+        api_cfg,
+        max_retries=QUICK_PASSIVE_MAX_RETRIES,
+        use_cache=True,
+        per_source_timeout=QUICK_PASSIVE_SOURCE_TIMEOUT,
+        emit_print=False,
+    )
 
 
 async def quick_scan_pipeline(rt_cfg: RuntimeConfig, api_cfg) -> Dict[str, Any]:
@@ -235,7 +215,8 @@ async def quick_scan_pipeline(rt_cfg: RuntimeConfig, api_cfg) -> Dict[str, Any]:
     logger.info("scan started: domain=%s mode=quick", domain)
     source_map: Dict[str, Set[str]] = defaultdict(set)
 
-    passive_subs = await enumerate_passive_quick(domain, api_cfg)
+    passive_result = await enumerate_passive_quick(domain, api_cfg)
+    passive_subs = passive_result.subdomains
     for host in passive_subs:
         source_map[host].add("passive")
     logger.info("enumeration completed: %d unique subdomains", len(passive_subs))
@@ -365,6 +346,7 @@ async def quick_scan_pipeline(rt_cfg: RuntimeConfig, api_cfg) -> Dict[str, Any]:
             "others": sorted(classified["others"]),
         },
         "scan_summary": scan_summary,
+        "passive_sources": passive_result.sources,
         "quick_scan_note": "Quick scan returns discovered assets quickly; unverified hosts were not confirmed via HTTP.",
     }
 
@@ -379,7 +361,8 @@ async def full_scan_pipeline(
     logger.info("scan started: domain=%s mode=full", rt_cfg.domain)
     brute_force_enabled = include_bruteforce
 
-    passive_subs = await enumerate_passive(rt_cfg.domain, api_cfg, rt_cfg)
+    passive_result = await enumerate_passive(rt_cfg.domain, api_cfg, rt_cfg)
+    passive_subs = passive_result.subdomains
     logger.info("enumeration completed: %d passive subdomains", len(passive_subs))
     source_map: Dict[str, Set[str]] = defaultdict(set)
     for host in passive_subs:
@@ -483,42 +466,19 @@ async def full_scan_pipeline(
             "others": sorted(classified["others"]),
         },
         "scan_summary": scan_summary,
+        "passive_sources": passive_result.sources,
     }
 
 
-async def enumerate_passive(domain: str, api_cfg, rt_cfg: RuntimeConfig):
-    # Keep crt.sh as required fallback and always execute it.
-    sources = {
-        "crtsh": fetch_crtsh(domain, api_cfg),
-        "wayback": fetch_wayback(domain, api_cfg),
-        "chaos": fetch_chaos(domain, api_cfg),
-        "virustotal": fetch_virustotal(domain, api_cfg),
-        "securitytrails": fetch_securitytrails(domain, api_cfg),
-    }
-    names = list(sources.keys())
-    results = await asyncio.gather(*sources.values(), return_exceptions=True)
-
-    all_subdomains = set()
-    crtsh_subs = set()
-    for source_name, result in zip(names, results, strict=False):
-        if isinstance(result, Exception):
-            print(f"[passive] {source_name}: failed ({result})")
-            continue
-        source_subs = set(result)
-        print(f"[passive] {source_name}: {len(source_subs)} results")
-        all_subdomains.update(source_subs)
-        if source_name == "crtsh":
-            crtsh_subs = source_subs
-
-    # Retry crt.sh once if the first attempt had no usable data.
-    if not crtsh_subs:
-        retry_crtsh = await fetch_crtsh(domain, api_cfg)
-        print(f"[passive] crtsh retry: {len(retry_crtsh)} results")
-        all_subdomains.update(retry_crtsh)
-
-    final_passive = dedupe_subdomains(all_subdomains)
-    print(f"[passive] combined unique: {len(final_passive)}")
-    return final_passive
+async def enumerate_passive(domain: str, api_cfg, rt_cfg: RuntimeConfig) -> PassiveEnumerationResult:
+    return await enumerate_all_passive(
+        domain,
+        api_cfg,
+        max_retries=FULL_PASSIVE_MAX_RETRIES,
+        use_cache=True,
+        per_source_timeout=FULL_PASSIVE_SOURCE_TIMEOUT,
+        emit_print=True,
+    )
 
 
 def _normalize_wordlist_lines(lines: Iterable[str]) -> List[str]:

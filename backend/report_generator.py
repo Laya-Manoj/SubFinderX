@@ -93,6 +93,30 @@ def _clean_entries(data: Dict[str, Any]) -> Dict[str, Any]:
     return strip_screenshot_fields(cleaned)
 
 
+def _passive_source_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [entry for entry in (data.get("passive_sources") or []) if entry.get("source") != "combined"]
+
+
+def _build_passive_sources_html(sources: Sequence[Dict[str, Any]]) -> str:
+    if not sources:
+        return "<p>No passive source statistics recorded.</p>"
+
+    rows = []
+    for entry in sources:
+        source = escape(str(entry.get("source", "")))
+        status = escape(str(entry.get("status", "")))
+        count = escape(str(entry.get("count", 0)))
+        reason = escape(str(entry.get("reason", "") or ""))
+        rows.append(
+            f"<tr><td>{source}</td><td>{status}</td><td>{count}</td><td>{reason}</td></tr>"
+        )
+    return (
+        "<h2>Passive Source Coverage</h2>"
+        "<table><thead><tr><th>Source</th><th>Status</th><th>Count</th><th>Reason</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+    )
+
+
 def _build_html(data: Dict[str, Any]) -> str:
     cleaned_data = _clean_entries(data)
     live_entries = cleaned_data.get("live_subdomains", [])
@@ -113,6 +137,7 @@ def _build_html(data: Dict[str, Any]) -> str:
     inactive_count = scan_summary.get("inactive", 0) + scan_summary.get("unverified", 0)
     domain = cleaned_data.get("domain", "")
     scanned_at = cleaned_data.get("scanned_at", "")
+    passive_sources_html = _build_passive_sources_html(_passive_source_entries(cleaned_data))
 
     def _html_observation_cell(entry: Dict[str, Any]) -> str:
         obs = entry.get("security_observation")
@@ -224,6 +249,7 @@ def _build_html(data: Dict[str, Any]) -> str:
       <canvas id="riskChart"></canvas>
     </div>
   </div>
+  {passive_sources_html}
   <h2>Live Subdomains</h2>
   <table>
     <thead>
@@ -612,6 +638,36 @@ def _build_pdf(data: Dict[str, Any], pdf_path: Path) -> None:
         _build_pdf_summary_cards(summary, styles),
         Spacer(1, 0.2 * inch),
     ]
+
+    passive_entries = _passive_source_entries(cleaned)
+    if passive_entries:
+        story.append(_pdf_para("<b>Passive Source Coverage</b>", styles["section"]))
+        passive_rows = [
+            [
+                _pdf_cell(_pdf_display(entry.get("source", "")), styles["cell"]),
+                _pdf_cell(_pdf_display(entry.get("status", "")), styles["cell"]),
+                _pdf_cell(str(entry.get("count", 0)), styles["cell"]),
+                _pdf_cell(_pdf_display(entry.get("reason", "")), styles["cell"]),
+            ]
+            for entry in passive_entries
+        ]
+        passive_table = Table(
+            [["Source", "Status", "Count", "Reason"], *passive_rows],
+            colWidths=[1.3 * inch, 0.9 * inch, 0.6 * inch, 3.7 * inch],
+            repeatRows=1,
+        )
+        passive_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e293b")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#cbd5e1")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        story.append(passive_table)
+        story.append(Spacer(1, 0.2 * inch))
 
     if live_entries:
         _append_pdf_section(

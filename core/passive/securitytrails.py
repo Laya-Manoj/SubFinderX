@@ -8,46 +8,43 @@ from typing import Set
 
 import httpx
 
+from core.passive.helpers import browser_headers, filter_for_domain
+from core.passive.types import SourceResult
 from core.utils.config import APIConfig
-from core.utils.dedupe import dedupe_subdomains
-
+from core.utils.http_retry import fetch_get_with_retry
 
 ST_BASE_URL = "https://api.securitytrails.com/v1"
 
 
-async def fetch_securitytrails(domain: str, api_cfg: APIConfig) -> Set[str]:
-    """
-    Enumerate subdomains using the SecurityTrails public API.
-
-    This implementation uses the documented subdomains endpoint:
-      GET /domain/{domain}/subdomains
-    """
+async def fetch_securitytrails(domain: str, api_cfg: APIConfig, *, max_retries: int = 4) -> SourceResult:
+    """Enumerate subdomains using the SecurityTrails API."""
 
     if not api_cfg.securitytrails_api_key:
-        return set()
+        return SourceResult.skipped("SUBHUNTER_SECURITYTRAILS_API_KEY not set")
 
-    headers = {
-        "APIKEY": api_cfg.securitytrails_api_key,
-        "User-Agent": api_cfg.user_agent,
-    }
+    headers = browser_headers(api_cfg)
+    headers["APIKEY"] = api_cfg.securitytrails_api_key
 
     async with httpx.AsyncClient(base_url=ST_BASE_URL, timeout=20.0, headers=headers) as client:
-        try:
-            resp = await client.get(f"/domain/{domain}/subdomains", params={"children_only": "false"})
-            resp.raise_for_status()
-        except Exception:
-            return set()
+        resp = await fetch_get_with_retry(
+            client,
+            f"/domain/{domain}/subdomains",
+            source="securitytrails",
+            max_retries=max_retries,
+            params={"children_only": "false"},
+        )
+        if resp is None:
+            return SourceResult.unavailable("network error")
+        if resp.status_code >= 400:
+            return SourceResult.unavailable(f"HTTP {resp.status_code}")
 
     try:
         data = resp.json()
     except Exception:
-        return set()
+        return SourceResult.unavailable("invalid JSON response")
 
     subdomains: Set[str] = set()
     for label in data.get("subdomains", []):
-        # SecurityTrails returns only the left-most label; reconstruct FQDN.
-        fqdn = f"{label}.{domain}"
-        subdomains.add(fqdn)
+        subdomains.add(f"{label}.{domain}")
 
-    return dedupe_subdomains(subdomains)
-
+    return SourceResult.ok(filter_for_domain(subdomains, domain))

@@ -20,6 +20,8 @@ class APIConfig:
     virustotal_api_key: Optional[str] = None
     securitytrails_api_key: Optional[str] = None
     chaos_api_key: Optional[str] = None
+    bufferover_api_key: Optional[str] = None
+    certspotter_api_key: Optional[str] = None
     user_agent: str = "SubHunter/1.0 (+https://github.com/)"
 
 
@@ -50,6 +52,8 @@ def load_api_config() -> APIConfig:
       - SUBHUNTER_VT_API_KEY
       - SUBHUNTER_SECURITYTRAILS_API_KEY
       - SUBHUNTER_CHAOS_API_KEY
+      - SUBHUNTER_BUFFEROVER_API_KEY
+      - SUBHUNTER_CERTSPOTTER_API_KEY
       - SUBHUNTER_USER_AGENT (optional override)
     """
 
@@ -57,6 +61,8 @@ def load_api_config() -> APIConfig:
         virustotal_api_key=os.getenv("SUBHUNTER_VT_API_KEY"),
         securitytrails_api_key=os.getenv("SUBHUNTER_SECURITYTRAILS_API_KEY"),
         chaos_api_key=os.getenv("SUBHUNTER_CHAOS_API_KEY"),
+        bufferover_api_key=os.getenv("SUBHUNTER_BUFFEROVER_API_KEY"),
+        certspotter_api_key=os.getenv("SUBHUNTER_CERTSPOTTER_API_KEY"),
         user_agent=os.getenv("SUBHUNTER_USER_AGENT", "SubHunter/1.0 (+https://github.com/)"),
     )
 
