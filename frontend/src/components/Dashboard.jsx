@@ -23,7 +23,7 @@ function Dashboard({ data }) {
 
   const downloadReport = (format = "json") => {
     window.open(
-      `http://127.0.0.1:5000/report/${data.report_id}?format=${format}`,
+      `https://13-233-199-106.sslip.io/report/${data.report_id}?format=${format}`,
       "_blank"
     );
   };
